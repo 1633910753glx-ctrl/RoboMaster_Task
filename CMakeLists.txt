@@ -59,6 +59,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user sources here
    Lib/led/Src/bsp_led.c
    Lib/servo/Src/bsp_servo.c
+   Lib/justfloat/Src/justfloat.c
 )
 
 # Add include paths
@@ -66,6 +67,7 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user defined include paths
      Lib/led/Inc
      Lib/servo/Inc
+     Lib/justfloat/Inc
 )
 
 # Add project symbols (macros)

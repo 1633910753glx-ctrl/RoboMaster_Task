@@ -1,21 +1,21 @@
 /* USER CODE BEGIN Header */
 /**
-  ******************************************************************************
-  * @file           : main.h
-  * @brief          : Header for main.c file.
-  *                   This file contains the common defines of the application.
-  ******************************************************************************
-  * @attention
-  *
-  * Copyright (c) 2026 STMicroelectronics.
-  * All rights reserved.
-  *
-  * This software is licensed under terms that can be found in the LICENSE file
-  * in the root directory of this software component.
-  * If no LICENSE file comes with this software, it is provided AS-IS.
-  *
-  ******************************************************************************
-  */
+ ******************************************************************************
+ * @file           : main.h
+ * @brief          : Header for main.c file.
+ *                   This file contains the common defines of the application.
+ ******************************************************************************
+ * @attention
+ *
+ * Copyright (c) 2026 STMicroelectronics.
+ * All rights reserved.
+ *
+ * This software is licensed under terms that can be found in the LICENSE file
+ * in the root directory of this software component.
+ * If no LICENSE file comes with this software, it is provided AS-IS.
+ *
+ ******************************************************************************
+ */
 /* USER CODE END Header */
 
 /* Define to prevent recursive inclusion -------------------------------------*/
@@ -37,6 +37,14 @@ extern "C" {
 /* Exported types ------------------------------------------------------------*/
 /* USER CODE BEGIN ET */
 
+  // 任务五的结构体，存放电机数据
+  typedef struct
+  {
+    uint16_t angle;    // 转子机械角度 (范围 0~8191)
+    int16_t speed_rpm; // 转子转速 (单位 rpm)
+    int16_t current;   // 实际转矩电流
+    uint8_t temp;      // 电机温度
+  } Motor_Data_t;
 /* USER CODE END ET */
 
 /* Exported constants --------------------------------------------------------*/

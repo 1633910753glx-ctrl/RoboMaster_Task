@@ -18,6 +18,7 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "can.h"
 #include "cmsis_os.h"
 #include "gpio.h"
 #include "tim.h"
@@ -25,22 +26,23 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-// 引入标准输入输出库，任务四
-#include <stdio.h>
-// 这里为了和c++编译环境匹配
-// C++混合编译保护罩：防止C++编译器对纯C编写的头文件进行名称改编（name mangling），确保C++代码能够正确调用C函数。
+
+// C++混合编译保护罩，防止链接器找不到C函数
 #ifdef __cplusplus
 extern "C"
 {
 #endif
-#include "bsp_led.h" //
+
+#include "bsp_led.h"
 #include "bsp_servo.h"
 #include "justfloat.h"
+#include <stdio.h>
   void MX_FREERTOS_Init(void);
 
 #ifdef __cplusplus
 }
 #endif
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -64,7 +66,10 @@ extern "C"
 uint8_t rx_byte;
 uint8_t rx_buf[20];
 uint8_t rx_cnt = 0;
-float kp_val = 0.0f;
+float kp_val = 50.0f;    // 默认给 50 的起步经验值，防止上电电机毫无反应
+Motor_Data_t motor_data; // 电机数据结构体实例，全局变量
+float Ki = 0.0f;
+float Kd = 0.0f;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -76,7 +81,11 @@ void MX_FREERTOS_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-// 开始
+/*********************************************************
+ * [自定义驱动与中断回调区]
+ * 用途：存放写的底层外设控制函数和各个通信中断的处理逻辑（回调函数，任务四和任务五）
+ *********************************************************/
+// 任务一：蜂鸣器音调设置函数
 void Buzzer_Set_Tone(uint16_t freq)
 {
   if (freq == 0)
@@ -90,7 +99,6 @@ void Buzzer_Set_Tone(uint16_t freq)
 }
 
 // 任务四回调函数
-
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
 
@@ -103,8 +111,15 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 
       if (sscanf((char *)rx_buf, "kp=%f", &kp_val) == 1)
       {
-
         justfloat_send_single(kp_val);
+      }
+      else if (sscanf((char *)rx_buf, "ki=%f", &Ki) == 1)
+      {
+        justfloat_send_single(Ki);
+      }
+      else if (sscanf((char *)rx_buf, "kd=%f", &Kd) == 1)
+      {
+        justfloat_send_single(Kd);
       }
 
       rx_cnt = 0;
@@ -118,6 +133,28 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
     }
 
     HAL_UART_Receive_IT(&huart1, &rx_byte, 1);
+  }
+}
+// 任务五回调函数
+void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
+{
+  CAN_RxHeaderTypeDef rx_header;
+  uint8_t rx_data[8];
+
+  if (hcan->Instance == CAN1)
+  {
+    // 读取接收到的 CAN 数据
+    HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO0, &rx_header, rx_data);
+
+    // 电机 ID 是 1，由C620 说明书得到其反馈标识符为 0x200 + 1 = 0x201
+    if (rx_header.StdId == 0x201)
+    {
+      // 将 8 个字节的数据拼接还原成真实数值
+      motor_data.angle = (rx_data[0] << 8) | rx_data[1];
+      motor_data.speed_rpm = (rx_data[2] << 8) | rx_data[3];
+      motor_data.current = (rx_data[4] << 8) | rx_data[5];
+      motor_data.temp = rx_data[6];
+    }
   }
 }
 /* USER CODE END 0 */
@@ -155,24 +192,29 @@ int main(void)
   MX_USART1_UART_Init();
   MX_TIM5_Init();
   MX_TIM1_Init();
+  MX_CAN1_Init();
   /* USER CODE BEGIN 2 */
+  /*********************************************************
+   * [系统初始化与外设启动区]
+   * 外设启动(Start)、开启中断(IT)、开机自检。在 FreeRTOS 接管前执行。
+   *********************************************************/
+  // 局部变量的定义
+  CAN_FilterTypeDef can_filter_st;
   // 初始化都写到这里
-  BSP_LED_Init(); // 启动 TIM5 的 PWM 硬件通道
-
+  BSP_LED_Init();                            // 启动 TIM5 的 PWM 硬件通道
   BSP_LED_SetColor(1000, 0, 0);              // 占空比 1000，这个是测试代码，之前任务二小灯不亮
   Servo_Init();                              // 启动 TIM1 的 PWM 硬件通道
   HAL_UART_Receive_IT(&huart1, &rx_byte, 1); // 开启UART1接收中断
 
-  // 开始2
-  //  基础任务：上电复位后蜂鸣器响一次
+  // 任务一
+  // 上电复位后蜂鸣器响一次
   HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_3);
   Buzzer_Set_Tone(4000); // 默认 4000Hz 音调
   HAL_Delay(500);        // 鸣响 500ms
   Buzzer_Set_Tone(0);    // 静音
   HAL_Delay(1000);
 
-  // 进阶任务：设计两种不同的报错音调 (10分)
-
+  // 设计两种不同的报错音调
   // 报错音调 1：“滴-滴-滴”
   for (int i = 0; i < 3; i++)
   {
@@ -191,8 +233,30 @@ int main(void)
     Buzzer_Set_Tone(0);
     HAL_Delay(200);
   }
-
   HAL_TIM_PWM_Stop(&htim4, TIM_CHANNEL_3); // 彻底关闭该通道PWM
+
+  // 任务五
+  //  1.配置CAN1的过滤器，允许接收所有ID的报文
+
+  can_filter_st.FilterActivation = CAN_FILTER_ENABLE;
+  can_filter_st.FilterMode = CAN_FILTERMODE_IDMASK;
+  can_filter_st.FilterScale = CAN_FILTERSCALE_32BIT;
+  can_filter_st.FilterIdHigh = 0x0000;
+  can_filter_st.FilterIdLow = 0x0000;
+  can_filter_st.FilterMaskIdHigh = 0x0000;
+  can_filter_st.FilterMaskIdLow = 0x0000;
+  can_filter_st.FilterBank = 0;
+
+  can_filter_st.FilterFIFOAssignment = CAN_FILTER_FIFO0;
+  can_filter_st.SlaveStartFilterBank = 14; //
+
+  HAL_CAN_ConfigFilter(&hcan1, &can_filter_st);
+
+  // 2. 启动 CAN1 硬件模块
+  HAL_CAN_Start(&hcan1);
+
+  // 3. 开启 CAN1 的接收中断 (当收到数据时会触发回调函数)
+  HAL_CAN_ActivateNotification(&hcan1, CAN_IT_RX_FIFO0_MSG_PENDING);
 
   /* USER CODE END 2 */
 
